@@ -24,19 +24,11 @@ function textsFromEvent(event) {
   };
   push(event?.text);
   const blocks = event?.blocks || [];
-  const lineTexts = [];
   for (const block of blocks) {
     push(block?.text);
     for (const line of block?.lines || []) {
-      if (line?.text) {
-        push(line.text);
-        lineTexts.push(line.text);
-      }
+      push(line?.text);
     }
-  }
-  if (lineTexts.length > 1) {
-    push(lineTexts.join(""));
-    push(lineTexts.join(" "));
   }
   return chunks;
 }
@@ -48,11 +40,26 @@ function vinFromText(raw) {
 
 function vinFromEvent(event) {
   const chunks = textsFromEvent(event);
+  const found = new Map();
   for (const chunk of chunks) {
     const vin = vinFromText(chunk);
-    if (vin) return vin;
+    if (!vin) continue;
+    found.set(vin, (found.get(vin) || 0) + 1);
   }
-  return vinFromText(chunks.join("\n"));
+  if (!found.size) return "";
+  let best = "";
+  let bestCount = 0;
+  let ties = 0;
+  for (const [vin, count] of found) {
+    if (count > bestCount) {
+      best = vin;
+      bestCount = count;
+      ties = 1;
+    } else if (count === bestCount) {
+      ties += 1;
+    }
+  }
+  return ties === 1 ? best : "";
 }
 
 function vinFromBarcode(barcode) {

@@ -195,65 +195,99 @@ export function passesVinChecksum(vin) {
   return vin[8] === check;
 }
 
-function cleanOcrText(raw) {
-  return String(raw || "")
-    .toUpperCase()
-    .replace(/[|!\\]/g, "1")
-    .replace(/[^A-Z0-9]/g, "")
-    .replace(/O/g, "0")
-    .replace(/I/g, "1")
-    .replace(/Q/g, "0");
+function looksLikeVin(vin) {
+  if (!isValidVin(vin) || !passesVinChecksum(vin)) return false;
+  const letters = (vin.match(/[A-HJ-NPR-Z]/g) || []).length;
+  const digits = (vin.match(/[0-9]/g) || []).length;
+  if (letters < 2 || digits < 2) return false;
+  if (YEAR_BASE[vin[9]] == null) return false;
+  return true;
 }
 
-function cleanedVariants(raw) {
-  const text = String(raw || "");
-  const seen = new Set();
+const VIN_GROUP_PATTERNS = [
+  [17],
+  [3, 6, 8],
+  [3, 14],
+  [9, 8],
+  [8, 9],
+  [4, 4, 4, 5],
+  [4, 4, 5, 4],
+  [4, 5, 4, 4],
+  [5, 4, 4, 4]
+];
+
+function patternScore(parts) {
+  if (parts.length === 1 && parts[0] === 17) return 100;
+  if (parts[0] === 3 && parts[1] === 6 && parts[2] === 8) return 90;
+  return 80;
+}
+
+function lineRuns(line) {
+  const runs = [];
+  const re = /[A-Z0-9]+/g;
+  let match;
+  while ((match = re.exec(line))) {
+    runs.push({
+      text: match[0].replace(/O/g, "0").replace(/I/g, "1").replace(/Q/g, "0"),
+      start: match.index,
+      end: match.index + match[0].length
+    });
+  }
+  return runs;
+}
+
+function allowedGap(gap) {
+  return typeof gap === "string" && gap.length > 0 && gap.length <= 3 && /^[ \t\-.:]+$/.test(gap);
+}
+
+function findIsolatedVinCandidates(raw) {
+  const lines = String(raw || "")
+    .toUpperCase()
+    .replace(/[|!\\]/g, "1")
+    .split(/\r?\n/);
   const out = [];
-  const add = (value) => {
-    const cleaned = cleanOcrText(value);
-    if (cleaned.length >= 17 && !seen.has(cleaned)) {
-      seen.add(cleaned);
-      out.push(cleaned);
+  for (const line of lines) {
+    const runs = lineRuns(line);
+    for (const run of runs) {
+      if (run.text.length === 17) out.push({ vin: run.text, score: 100 });
     }
-  };
-  add(text);
-  for (const line of text.split(/[\r\n]+/)) add(line);
+    for (let i = 0; i < runs.length; i += 1) {
+      for (const pattern of VIN_GROUP_PATTERNS) {
+        if (pattern.length < 2 || i + pattern.length > runs.length) continue;
+        const parts = runs.slice(i, i + pattern.length);
+        if (!parts.every((part, idx) => part.text.length === pattern[idx])) continue;
+        let grouped = true;
+        for (let k = 1; k < parts.length; k += 1) {
+          const gap = line.slice(parts[k - 1].end, parts[k].start);
+          if (!allowedGap(gap)) {
+            grouped = false;
+            break;
+          }
+        }
+        if (!grouped) continue;
+        out.push({
+          vin: parts.map((part) => part.text).join(""),
+          score: patternScore(pattern)
+        });
+      }
+    }
+  }
   return out;
 }
 
-function firstExactVin(cleaned) {
-  for (let i = 0; i <= cleaned.length - 17; i += 1) {
-    const vin = normalizeVin(cleaned.slice(i, i + 17));
-    if (isValidVin(vin) && passesVinChecksum(vin)) return vin;
-  }
-  return "";
-}
-
-function firstVinSkippingOne(cleaned) {
-  // Only try dropping one extra character on short VIN-like strings,
-  // so long OCR paragraphs do not invent a checksum match.
-  if (cleaned.length < 18 || cleaned.length > 22) return "";
-  for (let i = 0; i <= cleaned.length - 18; i += 1) {
-    const span = cleaned.slice(i, i + 18);
-    for (let skip = 0; skip < 18; skip += 1) {
-      const vin = normalizeVin(span.slice(0, skip) + span.slice(skip + 1));
-      if (isValidVin(vin) && passesVinChecksum(vin)) return vin;
-    }
-  }
-  return "";
-}
-
 export function extractValidVin(raw) {
-  const variants = cleanedVariants(raw);
-  for (const cleaned of variants) {
-    const vin = firstExactVin(cleaned);
-    if (vin) return vin;
+  const ranked = [];
+  const seen = new Set();
+  for (const candidate of findIsolatedVinCandidates(raw)) {
+    const vin = normalizeVin(candidate.vin);
+    if (seen.has(vin)) continue;
+    if (!looksLikeVin(vin)) continue;
+    seen.add(vin);
+    ranked.push({ vin, score: candidate.score });
   }
-  for (const cleaned of variants) {
-    const vin = firstVinSkippingOne(cleaned);
-    if (vin) return vin;
-  }
-  return "";
+  if (!ranked.length) return "";
+  ranked.sort((a, b) => b.score - a.score);
+  return ranked[0].vin;
 }
 
 function decodeModelYear(code) {
