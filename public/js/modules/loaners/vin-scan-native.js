@@ -5,30 +5,74 @@ import {
   normalizeVin,
   isValidVin,
   passesVinChecksum,
+  extractValidVin,
 } from "/js/modules/loaners/vin-scanner.js";
 const RESULT_KEY = "dexp_scan_vin";
 const FAIL_MS = 12000;
-function vinFromText(raw) {
-  const cleaned = String(raw || "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "")
-    .replace(/O/g, "0")
-    .replace(/I/g, "1")
-    .replace(/Q/g, "0");
-  for (let i = 0; i <= cleaned.length - 17; i += 1) {
-    const vin = normalizeVin(cleaned.slice(i, i + 17));
-    if (isValidVin(vin) && passesVinChecksum(vin)) return vin;
+const CONFIRM_READS = 2;
+
+function textsFromEvent(event) {
+  const chunks = [];
+  const push = (value) => {
+    if (value == null) return;
+    if (Array.isArray(value)) {
+      value.forEach(push);
+      return;
+    }
+    const text = typeof value === "string" ? value : String(value);
+    if (text.trim()) chunks.push(text);
+  };
+  push(event?.text);
+  const blocks = event?.blocks || [];
+  const lineTexts = [];
+  for (const block of blocks) {
+    push(block?.text);
+    for (const line of block?.lines || []) {
+      if (line?.text) {
+        push(line.text);
+        lineTexts.push(line.text);
+      }
+    }
   }
-  return "";
+  if (lineTexts.length > 1) {
+    push(lineTexts.join(""));
+    push(lineTexts.join(" "));
+  }
+  return chunks;
 }
+
+function vinFromText(raw) {
+  const vin = extractValidVin(raw);
+  return vin && isValidVin(vin) && passesVinChecksum(vin) ? vin : "";
+}
+
+function vinFromEvent(event) {
+  const chunks = textsFromEvent(event);
+  for (const chunk of chunks) {
+    const vin = vinFromText(chunk);
+    if (vin) return vin;
+  }
+  return vinFromText(chunks.join("\n"));
+}
+
+function vinFromBarcode(barcode) {
+  return vinFromText(
+    barcode?.displayValue || barcode?.rawValue || barcode?.value || ""
+  );
+}
+
 function showFail() {
   document.body.classList.remove("scanner-on");
   document.body.classList.add("failed");
 }
+
 function goResult(vin) {
-  sessionStorage.setItem(RESULT_KEY, vin);
+  const accepted = normalizeVin(vin);
+  if (!isValidVin(accepted) || !passesVinChecksum(accepted)) return;
+  sessionStorage.setItem(RESULT_KEY, accepted);
   location.href = "/pages/vin-scan-test/result.html";
 }
+
 async function startNativeScan() {
   const plugins = window.Capacitor?.Plugins || {};
   const BarcodeScanner = plugins.BarcodeScanner || plugins.CapacitorMlkitBarcodeTextScanner;
@@ -39,6 +83,7 @@ async function startNativeScan() {
   document.body.classList.remove("failed");
   document.body.classList.add("scanner-on");
   let done = false;
+  const votes = new Map();
   const timer = window.setTimeout(() => {
     if (done) return;
     done = true;
@@ -46,17 +91,41 @@ async function startNativeScan() {
     BarcodeScanner.removeAllListeners?.().catch(() => {});
     showFail();
   }, FAIL_MS);
+
+  async function acceptVin(vin) {
+    if (done) return;
+    if (!isValidVin(vin) || !passesVinChecksum(vin)) return;
+    done = true;
+    window.clearTimeout(timer);
+    await BarcodeScanner.stopScan?.().catch(() => {});
+    await BarcodeScanner.removeAllListeners?.().catch(() => {});
+    goResult(vin);
+  }
+
+  function voteVin(vin) {
+    if (!vin || done) return;
+    if (!isValidVin(vin) || !passesVinChecksum(vin)) return;
+    const count = (votes.get(vin) || 0) + 1;
+    votes.set(vin, count);
+    if (count >= CONFIRM_READS) acceptVin(vin);
+  }
+
   try {
     await BarcodeScanner.removeAllListeners?.().catch(() => {});
     await BarcodeScanner.addListener("textScanned", async (event) => {
       if (done) return;
-      const vin = vinFromText(event?.text || "");
-      if (!vin) return;
-      done = true;
-      window.clearTimeout(timer);
-      await BarcodeScanner.stopScan?.().catch(() => {});
-      await BarcodeScanner.removeAllListeners?.().catch(() => {});
-      goResult(vin);
+      voteVin(vinFromEvent(event));
+    });
+    await BarcodeScanner.addListener("barcodesScanned", async (event) => {
+      if (done) return;
+      const barcodes = event?.barcodes || [];
+      for (const barcode of barcodes) {
+        const vin = vinFromBarcode(barcode);
+        if (vin) {
+          await acceptVin(vin);
+          return;
+        }
+      }
     });
     await BarcodeScanner.startScan({
       textRecognition: true,
