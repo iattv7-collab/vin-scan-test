@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">VIN Scan Test</string>
+    <string name="title_activity_main">VIN Scan Test</string>
+    <string name="package_name">com.iattv7.vinscantest</string>
+    <string name="custom_url_scheme">com.iattv7.vinscantest</string>
+</resources>

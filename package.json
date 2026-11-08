@@ -1,0 +1,21 @@
+{
+  "name": "vin-scan-test",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone native VIN scanner test (Capacitor + ML Kit text recognition)",
+  "scripts": {
+    "cap:sync": "npx cap sync",
+    "cap:android": "npx cap open android",
+    "cap:run": "npx cap run android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/ios": "^8.6.0",
+    "@pantrist/capacitor-mlkit-barcode-text-scanner": "^8.3.2"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}
