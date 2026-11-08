@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>VIN</title>
+    <link rel="stylesheet" href="/css/core/reset.css" />
+    <link rel="stylesheet" href="/css/core/base.css" />
+    <style>
+        #vinOut {
+            font-size: 28px;
+            font-weight: bold;
+            color: #1E40AF;
+            letter-spacing: 1px;
+            margin: 8px 0 16px;
+        }
+    </style>
+</head>
+<body>
+    <div id="appHeader"></div>
+    <main class="page-shell">
+        <div class="page-card">
+            <div class="page-title-row">
+                <h2>VIN</h2>
+            </div>
+            <div id="vinOut"></div>
+            <div class="action-row">
+                <button id="scanAgainBtn" type="button">Scan again</button>
+            </div>
+        </div>
+    </main>
+    <script type="module" src="/js/modules/loaners/vin-scan-result.js?v=1"></script>
+</body>
+</html>
